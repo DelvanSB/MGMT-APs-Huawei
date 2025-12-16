@@ -153,6 +153,31 @@ def token_required(f):
     
     return decorated
 
+def admin_required(f):
+    """Decorador para proteger rotas que requerem privilégios de administrador"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Token não fornecido'}), 401
+        
+        if token.startswith('Bearer '):
+            token = token[7:]
+        
+        user_data = verify_token(token)
+        
+        if not user_data:
+            return jsonify({'success': False, 'error': 'Token inválido ou expirado'}), 401
+        
+        if user_data.get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Acesso negado: privilégios de administrador necessários'}), 403
+        
+        request.current_user = user_data
+        
+        return f(*args, **kwargs)
+    
+    return decorated
 
 # ==================== CONEXÃO SSH ====================
 
@@ -580,7 +605,7 @@ def verify():
     })
 
 @app.route('/api/users', methods=['GET'])
-@token_required
+@admin_required
 def list_users():
     """Lista todos os usuários"""
     try:
@@ -611,7 +636,7 @@ def list_users():
         }), 500
 
 @app.route('/api/users', methods=['POST'])
-@token_required
+@admin_required
 def add_user():
     """Adiciona novo usuário"""
     try:
@@ -662,7 +687,7 @@ def add_user():
         }), 500
 
 @app.route('/api/users/<username>', methods=['PUT'])
-@token_required
+@admin_required
 def edit_user(username):
     """Edita usuário existente"""
     try:
@@ -709,7 +734,7 @@ def edit_user(username):
         }), 500
 
 @app.route('/api/users/<username>', methods=['DELETE'])
-@token_required
+@admin_required
 def delete_user(username):
     """Exclui usuário"""
     try:

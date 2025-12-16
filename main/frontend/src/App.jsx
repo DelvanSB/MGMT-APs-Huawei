@@ -331,7 +331,9 @@ const Layout = ({ children, user, onLogout }) => {
             <NavLink to="/" icon={Home}>Dashboard</NavLink>
             <NavLink to="/groups" icon={Folder}>Grupos</NavLink>
             <NavLink to="/aps" icon={Radio}>Access Points</NavLink>
-            <NavLink to="/users" icon={Users}>Usuários</NavLink>
+            {user?.role === 'admin' && (
+              <NavLink to="/users" icon={Users}>Usuários</NavLink>
+            )}
           </div>
         </div>
       </nav>
