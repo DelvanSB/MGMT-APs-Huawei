@@ -144,7 +144,7 @@ const LoginPage = ({ onLogin }) => {
 
         <div className="mt-6 text-center text-sm text-gray-600">
           <p>Sistema de Gerenciamento Facilitado - SGF</p>
-          <p className="font-mono mt-1">Para APs Huawei Via AC</p>
+          <p className="font-mono mt-1">Para APs Huawei Via AC - <v1 className="0"></v1></p>
         </div>
       </Card>
     </div>
