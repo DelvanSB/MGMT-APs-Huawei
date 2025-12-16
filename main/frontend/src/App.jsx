@@ -151,6 +151,146 @@ const LoginPage = ({ onLogin }) => {
   );
 };
 
+// ============= SETUP INICIAL =============
+
+const SetupPage = ({ onSetupComplete }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (password !== confirmPassword) {
+      setError('As senhas não coincidem');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('A senha deve ter no mínimo 6 caracteres');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, name })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('Sistema configurado com sucesso! Faça login com suas credenciais.');
+        onSetupComplete();
+      } else {
+        setError(data.error || 'Erro ao configurar sistema');
+      }
+    } catch (err) {
+      setError('Erro de conexão com o servidor');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+            <Wifi className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800">Configuração Inicial</h1>
+          <p className="text-gray-600 mt-2">Crie o primeiro usuário administrador</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Usuário
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="admin"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nome Completo
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Nome Sobrenome"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Senha
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Mínimo 6 caracteres"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Confirmar Senha
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Digite a senha novamente"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              <span className="text-sm">{error}</span>
+            </div>
+          )}
+
+          <Button
+            variant="primary"
+            className="w-full"
+            disabled={loading}
+          >
+            {loading ? 'Configurando...' : 'Criar Administrador'}
+          </Button>
+        </form>
+
+        <div className="mt-6 text-center text-sm text-gray-600">
+          <p>Este usuário terá privilégios de administrador</p>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 // ============= LAYOUT PRINCIPAL =============
 
 const Layout = ({ children, user, onLogout }) => {
@@ -950,12 +1090,19 @@ const InfoItem = ({ label, value }) => (
 const UsersPage = ({ token }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [formData, setFormData] = useState({ username: '', password: '', name: '', role: 'operator' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     try {
       const response = await fetch(`${API_URL}/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -966,6 +1113,90 @@ const UsersPage = ({ token }) => {
       console.error('Erro ao carregar usuários:', err);
     } finally {
       setLoading(false);
+      if (isRefresh) setRefreshing(false);
+    }
+  };
+
+  const handleAddUser = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Usuário adicionado com sucesso!');
+        setShowAddModal(false);
+        setFormData({ username: '', password: '', name: '', role: 'operator' });
+        fetchUsers();
+      } else {
+        alert(data.error || 'Erro ao adicionar usuário');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditUser = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/users/${editingUser.username}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Usuário editado com sucesso!');
+        setShowEditModal(false);
+        setEditingUser(null);
+        setFormData({ username: '', password: '', name: '', role: 'operator' });
+        fetchUsers();
+      } else {
+        alert(data.error || 'Erro ao editar usuário');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (username) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o usuário "${username}"?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/users/${username}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Usuário excluído com sucesso!');
+        fetchUsers();
+      } else {
+        alert(data.error || 'Erro ao excluir usuário');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
     }
   };
 
@@ -977,7 +1208,13 @@ const UsersPage = ({ token }) => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-800">Usuários</h2>
-        <Button variant="primary">Adicionar Usuário</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => fetchUsers(true)} variant="secondary" className="flex items-center gap-2" disabled={refreshing}>
+            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {refreshing ? 'Atualizando...' : 'Atualizar'}
+          </Button>
+          <Button variant="primary" onClick={() => setShowAddModal(true)}>Adicionar Usuário</Button>
+        </div>
       </div>
 
       <Card>
@@ -986,6 +1223,7 @@ const UsersPage = ({ token }) => {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Usuário</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Função</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Ações</th>
               </tr>
@@ -994,6 +1232,7 @@ const UsersPage = ({ token }) => {
               {users.map((user) => (
                 <tr key={user.username} className="border-b border-gray-100">
                   <td className="py-3 px-4 font-medium text-gray-800">{user.username}</td>
+                  <td className="py-3 px-4 text-gray-600">{user.name}</td>
                   <td className="py-3 px-4">
                     <Badge variant={user.role === 'admin' ? 'success' : 'default'}>
                       {user.role}
@@ -1001,8 +1240,24 @@ const UsersPage = ({ token }) => {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex gap-2">
-                      <Button variant="secondary" className="text-sm">Editar</Button>
-                      <Button variant="danger" className="text-sm">Excluir</Button>
+                      <Button 
+                        variant="secondary" 
+                        className="text-sm"
+                        onClick={() => {
+                          setEditingUser(user);
+                          setFormData({ username: user.username, password: '', name: user.name, role: user.role });
+                          setShowEditModal(true);
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      <Button 
+                        variant="danger" 
+                        className="text-sm"
+                        onClick={() => handleDeleteUser(user.username)}
+                      >
+                        Excluir
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -1011,6 +1266,133 @@ const UsersPage = ({ token }) => {
           </table>
         </div>
       </Card>
+
+      {/* Modal Adicionar Usuário */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Adicionar Usuário</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Usuário</label>
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="nome.usuario"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Nome Sobrenome"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Senha</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="********"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Função</label>
+                <select
+                  value={formData.role}
+                  onChange={(e) => setFormData({...formData, role: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="operator">Operador</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <Button variant="primary" className="flex-1 flex items-center justify-center gap-2" onClick={handleAddUser} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={() => {
+                setShowAddModal(false);
+                setFormData({ username: '', password: '', name: '', role: 'operator' });
+              }} disabled={saving}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal Editar Usuário */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Editar Usuário</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Usuário</label>
+                <input
+                  type="text"
+                  value={formData.username}
+                  disabled
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nova Senha (deixe em branco para não alterar)</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="********"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Função</label>
+                <select
+                  value={formData.role}
+                  onChange={(e) => setFormData({...formData, role: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="operator">Operador</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <Button variant="primary" className="flex-1 flex items-center justify-center gap-2" onClick={handleEditUser} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={() => {
+                setShowEditModal(false);
+                setEditingUser(null);
+                setFormData({ username: '', password: '', name: '', role: 'operator' });
+              }} disabled={saving}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
@@ -1021,12 +1403,28 @@ function App() {
 	const [token, setToken] = useState(localStorage.getItem('token'));
 	const [user, setUser] = useState(
 	  JSON.parse(localStorage.getItem('user') || 'null')
-);
+	);
+	const [needsSetup, setNeedsSetup] = useState(null);
+
+	useEffect(() => {
+		checkSetupStatus();
+	}, []);
+
+	const checkSetupStatus = async () => {
+		try {
+			const response = await fetch(`${API_URL}/auth/setup-status`);
+			const data = await response.json();
+			setNeedsSetup(data.needs_setup);
+		} catch (err) {
+			console.error('Erro ao verificar status do setup:', err);
+			setNeedsSetup(false);
+		}
+	};
 
 	const handleLogin = (newToken, newUser) => {
 	  setToken(newToken);
 	  setUser(newUser);
-};
+	};
 
 	const handleLogout = () => {
 	  localStorage.removeItem('token');
@@ -1035,24 +1433,45 @@ function App() {
 	  setUser(null);
 	};
 
-  if (!token) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
+	const handleSetupComplete = () => {
+		setNeedsSetup(false);
+	};
 
-  return (
-    <Router>
-		<Layout user={user} onLogout={handleLogout}>
-        <Routes>
-          <Route path="/" element={<Dashboard token={token} />} />
-          <Route path="/groups" element={<GroupsPage token={token} />} />
-          <Route path="/aps" element={<APsPage token={token} />} />
-          <Route path="/aps/:id" element={<APDetailsPage token={token} />} />
-          <Route path="/users" element={<UsersPage token={token} />} />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Layout>
-    </Router>
-  );
+	// Aguarda verificação de setup
+	if (needsSetup === null) {
+		return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+			<div className="text-center">
+				<Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+				<p className="text-gray-600">Carregando...</p>
+			</div>
+		</div>;
+	}
+
+	// Mostra tela de setup se necessário
+	if (needsSetup) {
+		return <SetupPage onSetupComplete={handleSetupComplete} />;
+	}
+
+	// Mostra login se não autenticado
+	if (!token) {
+		return <LoginPage onLogin={handleLogin} />;
+	}
+
+	// Mostra aplicação principal
+	return (
+		<Router>
+			<Layout user={user} onLogout={handleLogout}>
+				<Routes>
+					<Route path="/" element={<Dashboard token={token} />} />
+					<Route path="/groups" element={<GroupsPage token={token} />} />
+					<Route path="/aps" element={<APsPage token={token} />} />
+					<Route path="/aps/:id" element={<APDetailsPage token={token} />} />
+					<Route path="/users" element={<UsersPage token={token} />} />
+					<Route path="*" element={<Navigate to="/" />} />
+				</Routes>
+			</Layout>
+		</Router>
+	);
 }
 
 export default App;

@@ -60,17 +60,8 @@ logger = logging.getLogger(__name__)
 def load_users():
     """Carrega usuários do arquivo JSON"""
     if not os.path.exists(USERS_FILE):
-        # Cria arquivo inicial com usuário padrão
-        default_users = {
-            "maycon": {
-                "password": generate_password_hash("maycon123"),  # Senha padrão: maycon123
-                "name": "Maycon",
-                "role": "operator",
-                "active": True
-            }
-        }
-        save_users(default_users)
-        return default_users
+        logger.error(f"Arquivo {USERS_FILE} não encontrado. Copie users.json.example para users.json e configure o primeiro usuário.")
+        return {}
     
     try:
         with open(USERS_FILE, 'r') as f:
@@ -474,6 +465,66 @@ def with_switch_connection(f):
 
 # ==================== ROTAS DE AUTENTICAÇÃO ====================
 
+@app.route('/api/auth/setup-status', methods=['GET'])
+def setup_status():
+    """Verifica se o sistema precisa de configuração inicial"""
+    users = load_users()
+    
+    return jsonify({
+        'needs_setup': len(users) == 0
+    })
+
+
+@app.route('/api/auth/setup', methods=['POST'])
+def initial_setup():
+    """Cria o primeiro usuário administrador"""
+    try:
+        # Verifica se já existem usuários
+        users = load_users()
+        if len(users) > 0:
+            return jsonify({
+                'success': False,
+                'error': 'Sistema já foi configurado'
+            }), 400
+        
+        data = request.json
+        username = data.get('username', '').strip().lower()
+        password = data.get('password', '')
+        name = data.get('name', '').strip()
+        
+        if not username or not password or not name:
+            return jsonify({
+                'success': False,
+                'error': 'Usuário, senha e nome são obrigatórios'
+            }), 400
+        
+        # Cria primeiro usuário como admin
+        users[username] = {
+            'password': generate_password_hash(password),
+            'name': name,
+            'role': 'admin',
+            'active': True
+        }
+        
+        if save_users(users):
+            logger.info(f"Setup inicial concluído: primeiro admin '{username}' criado")
+            return jsonify({
+                'success': True,
+                'message': 'Sistema configurado com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao salvar configuração'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro no setup inicial: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao configurar sistema'
+        }), 500
+
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     """Endpoint de login"""
@@ -528,6 +579,175 @@ def verify():
         'user': request.current_user
     })
 
+@app.route('/api/users', methods=['GET'])
+@token_required
+def list_users():
+    """Lista todos os usuários"""
+    try:
+        users = load_users()
+        
+        # Remove senhas antes de enviar
+        users_safe = []
+        for username, data in users.items():
+            users_safe.append({
+                'username': username,
+                'name': data.get('name', ''),
+                'role': data.get('role', 'operator'),
+                'active': data.get('active', True)
+            })
+        
+        logger.info(f"[{request.current_user['name']}] Listando usuários...")
+        
+        return jsonify({
+            'success': True,
+            'data': users_safe
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao listar usuários: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao listar usuários'
+        }), 500
+
+@app.route('/api/users', methods=['POST'])
+@token_required
+def add_user():
+    """Adiciona novo usuário"""
+    try:
+        data = request.json
+        username = data.get('username', '').strip().lower()
+        password = data.get('password', '')
+        name = data.get('name', '').strip()
+        role = data.get('role', 'operator')
+        
+        if not username or not password or not name:
+            return jsonify({
+                'success': False,
+                'error': 'Usuário, senha e nome são obrigatórios'
+            }), 400
+        
+        users = load_users()
+        
+        if username in users:
+            return jsonify({
+                'success': False,
+                'error': 'Usuário já existe'
+            }), 400
+        
+        users[username] = {
+            'password': generate_password_hash(password),
+            'name': name,
+            'role': role,
+            'active': True
+        }
+        
+        if save_users(users):
+            logger.info(f"[{request.current_user['name']}] Usuário '{username}' adicionado com sucesso")
+            return jsonify({
+                'success': True,
+                'message': f'Usuário {username} adicionado com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao salvar usuário'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao adicionar usuário: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao adicionar usuário'
+        }), 500
+
+@app.route('/api/users/<username>', methods=['PUT'])
+@token_required
+def edit_user(username):
+    """Edita usuário existente"""
+    try:
+        data = request.json
+        new_password = data.get('password', '').strip()
+        new_name = data.get('name', '').strip()
+        new_role = data.get('role', '')
+        
+        users = load_users()
+        
+        if username not in users:
+            return jsonify({
+                'success': False,
+                'error': 'Usuário não encontrado'
+            }), 404
+        
+        # Atualiza campos
+        if new_name:
+            users[username]['name'] = new_name
+        
+        if new_role:
+            users[username]['role'] = new_role
+        
+        if new_password:
+            users[username]['password'] = generate_password_hash(new_password)
+        
+        if save_users(users):
+            logger.info(f"[{request.current_user['name']}] Usuário '{username}' editado com sucesso")
+            return jsonify({
+                'success': True,
+                'message': f'Usuário {username} editado com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao salvar alterações'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao editar usuário {username}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao editar usuário'
+        }), 500
+
+@app.route('/api/users/<username>', methods=['DELETE'])
+@token_required
+def delete_user(username):
+    """Exclui usuário"""
+    try:
+        # Previne exclusão do próprio usuário logado
+        if username == request.current_user['username']:
+            return jsonify({
+                'success': False,
+                'error': 'Você não pode excluir seu próprio usuário'
+            }), 400
+        
+        users = load_users()
+        
+        if username not in users:
+            return jsonify({
+                'success': False,
+                'error': 'Usuário não encontrado'
+            }), 404
+        
+        del users[username]
+        
+        if save_users(users):
+            logger.info(f"[{request.current_user['name']}] Usuário '{username}' excluído com sucesso")
+            return jsonify({
+                'success': True,
+                'message': f'Usuário {username} excluído com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao excluir usuário'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao excluir usuário {username}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao excluir usuário'
+        }), 500
 
 # ==================== ROTAS DA API (PROTEGIDAS) ====================
 
