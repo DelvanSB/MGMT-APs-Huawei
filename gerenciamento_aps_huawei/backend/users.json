@@ -1,0 +1,15 @@
+{
+  "maycon": {
+    "password": "scrypt:32768:8:1$tuUK5hS4S8zIRH4Y$b6184a66e48f5f8be2884d4592626393e252d5e53dde66049f641baf6dd2d463018a7fcc39d4534d54ac06cd88c6ad240d6bf55a0329b1ddb63a22948d8bfabf",
+    "name": "Maycon",
+    "role": "operator",
+    "active": true
+  },
+  "delvans": {
+    "password": "scrypt:32768:8:1$tuUK5hS4S8zIRH4Y$b6184a66e48f5f8be2884d4592626393e252d5e53dde66049f641baf6dd2d463018a7fcc39d4534d54ac06cd88c6ad240d6bf55a0329b1ddb63a22948d8bfabf",
+    "name": "Delvans",
+    "role": "operator",
+    "active": true
+  }
+
+}

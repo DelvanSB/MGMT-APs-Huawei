@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+build/
+
+# Logs
+*.log
+
+# Env
+.env
+.env.pmbv
+
+# Backups
+*.backup*
+*.bkp*
