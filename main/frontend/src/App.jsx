@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, us
 import { 
   Wifi, Users, Activity, AlertCircle, Search, Filter, 
   LogOut, Home, Folder, Radio, User, ChevronRight,
-  Signal, Smartphone, RefreshCw, Edit2, Trash2, Move
+  Signal, Smartphone, RefreshCw, Edit2, Trash2, Move, Loader2
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -228,25 +228,29 @@ const NavLink = ({ to, icon: Icon, children }) => {
 const Dashboard = ({ token }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchDashboard();
   }, []);
 
-  const fetchDashboard = async () => {
-    try {
-      const response = await fetch(`${API_URL}/dashboard`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      setStats(data);
-    } catch (err) {
-      console.error('Erro ao carregar dashboard:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchDashboard = async (isRefresh = false) => {
+  if (isRefresh) setRefreshing(true);
+  try {
+    const response = await fetch(`${API_URL}/dashboard`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    setStats(data);
+  } catch (err) {
+    console.error('Erro ao carregar dashboard:', err);
+  } finally {
+    setLoading(false);
+    if (isRefresh) setRefreshing(false);
+  }
+};
 
   if (loading) {
     return <div className="text-center py-12">Carregando...</div>;
@@ -258,45 +262,52 @@ const Dashboard = ({ token }) => {
 		  <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
 
 		  <div className="flex gap-2">
-			<Button
-			  onClick={fetchDashboard}
-			  variant="secondary"
-			  className="flex items-center gap-2"
-			>
-			  <RefreshCw className="w-4 h-4" />
-			  Atualizar
-			</Button>
+      <Button
+        onClick={() => fetchDashboard(true)}
+        variant="secondary"
+        className="flex items-center gap-2"
+        disabled={refreshing || saving}
+      >
+        {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+        {refreshing ? 'Atualizando...' : 'Atualizar'}
+      </Button>
 
-			<Button
-			  variant="primary"
-			  onClick={async () => {
-				const confirmSave = window.confirm(
-				  'Deseja salvar a configuração atual no switch?'
-				);
-				if (!confirmSave) return;
+      <Button
+        variant="primary"
+        className="flex items-center gap-2"
+        disabled={saving || refreshing}
+        onClick={async () => {
+        const confirmSave = window.confirm(
+          'Deseja salvar a configuração atual no switch?'
+        );
+        if (!confirmSave) return;
 
-				try {
-				  const response = await fetch(`${API_URL}/switch/save`, {
-					method: 'POST',
-					headers: {
-					  'Authorization': `Bearer ${token}`
-					}
-				  });
+        setSaving(true);
+        try {
+          const response = await fetch(`${API_URL}/switch/save`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+          });
 
-				  const data = await response.json();
+          const data = await response.json();
 
-				  if (data.success) {
-					alert('Configuração salva com sucesso no switch.');
-				  } else {
-					alert(data.error || 'Erro ao salvar configuração.');
-				  }
-				} catch (err) {
-				  alert('Erro de comunicação com o backend.');
-				}
-			  }}
-			>
-			  Salvar Configuração
-			</Button>
+          if (data.success) {
+          alert('Configuração salva com sucesso no switch.');
+          } else {
+          alert(data.error || 'Erro ao salvar configuração.');
+          }
+        } catch (err) {
+          alert('Erro de comunicação com o backend.');
+        } finally {
+          setSaving(false);
+        }
+        }}
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+        {saving ? 'Salvando...' : 'Salvar Configuração'}
+      </Button>
 		  </div>
 		</div>
 
@@ -410,25 +421,28 @@ const StatCard = ({ title, value, icon: Icon, color }) => {
 const GroupsPage = ({ token }) => {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchGroups();
   }, []);
 
-  const fetchGroups = async () => {
-    try {
-      const response = await fetch(`${API_URL}/groups`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      setGroups(data.data || []);
-    } catch (err) {
-      console.error('Erro ao carregar grupos:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchGroups = async (isRefresh = false) => {
+  if (isRefresh) setRefreshing(true);
+  try {
+    const response = await fetch(`${API_URL}/groups`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    setGroups(data.data || []);
+  } catch (err) {
+    console.error('Erro ao carregar grupos:', err);
+  } finally {
+    setLoading(false);
+    if (isRefresh) setRefreshing(false);
+  }
+};
 
   if (loading) {
     return <div className="text-center py-12">Carregando...</div>;
@@ -438,9 +452,9 @@ const GroupsPage = ({ token }) => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-800">Grupos de APs</h2>
-        <Button onClick={fetchGroups} variant="secondary" className="flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Atualizar
+        <Button onClick={() => fetchGroups(true)} variant="secondary" className="flex items-center gap-2" disabled={refreshing}>
+          {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {refreshing ? 'Atualizando...' : 'Atualizar'}
         </Button>
       </div>
 
@@ -478,15 +492,11 @@ const GroupsPage = ({ token }) => {
 const APsPage = ({ token }) => {
   const [aps, setAps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('');
   const navigate = useNavigate();
-  
-  
-  
-  
-  
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -495,22 +505,22 @@ const APsPage = ({ token }) => {
     fetchAPs(group);
   }, []);
 
-  const fetchAPs = async (group = null) => {
-    try {
-      const url = group ? `${API_URL}/aps?group=${group}` : `${API_URL}/aps`;
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      setAps(data.data || []);
-    } catch (err) {
-      console.error('Erro ao carregar APs:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-
+const fetchAPs = async (group = null, isRefresh = false) => {
+  if (isRefresh) setRefreshing(true);
+  try {
+    const url = group ? `${API_URL}/aps?group=${group}` : `${API_URL}/aps`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    setAps(data.data || []);
+  } catch (err) {
+    console.error('Erro ao carregar APs:', err);
+  } finally {
+    setLoading(false);
+    if (isRefresh) setRefreshing(false);
+  }
+};
 
   const filteredAPs = aps.filter(ap => {
     const matchesSearch = 
@@ -544,9 +554,9 @@ const APsPage = ({ token }) => {
             <p className="text-sm text-gray-600 mt-1">Grupo: {groupFilter}</p>
           )}
         </div>
-        <Button onClick={() => fetchAPs(groupFilter)} variant="secondary" className="flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Atualizar
+        <Button onClick={() => fetchAPs(groupFilter, true)} variant="secondary" className="flex items-center gap-2" disabled={refreshing}>
+          {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {refreshing ? 'Atualizando...' : 'Atualizar'}
         </Button>
       </div>
 
@@ -647,6 +657,8 @@ const APDetailsPage = ({ token }) => {
   const [movingGroup, setMovingGroup] = useState(false);
   const [newGroup, setNewGroup] = useState('');
   const [availableGroups, setAvailableGroups] = useState([]);
+  const [savingName, setSavingName] = useState(false);
+  const [savingGroup, setSavingGroup] = useState(false);
 
   useEffect(() => {
     fetchAPDetails();
@@ -686,55 +698,61 @@ const APDetailsPage = ({ token }) => {
 	  }
 	};
 
-	const handleRename = async () => {
-	  try {
-		const response = await fetch(`${API_URL}/aps/${id}/rename`, {
-		  method: 'POST',
-		  headers: {
-			'Content-Type': 'application/json',
-			'Authorization': `Bearer ${token}`
-		  },
-		  body: JSON.stringify({ name: newName })
-		});
-		
-		const data = await response.json();
-		
-		if (data.success) {
-		  setEditingName(false);
-		  setNewName('');
-		  fetchAPDetails();
-		} else {
-		  alert(data.error || 'Erro ao renomear AP');
-		}
-	  } catch (err) {
-		alert('Erro de comunicação com o servidor');
-	  }
-	};
+const handleRename = async () => {
+  setSavingName(true);
+  try {
+	const response = await fetch(`${API_URL}/aps/${id}/rename`, {
+	  method: 'POST',
+	  headers: {
+		'Content-Type': 'application/json',
+		'Authorization': `Bearer ${token}`
+	  },
+	  body: JSON.stringify({ name: newName })
+	});
+	
+	const data = await response.json();
+	
+	if (data.success) {
+	  setEditingName(false);
+	  setNewName('');
+	  fetchAPDetails();
+	} else {
+	  alert(data.error || 'Erro ao renomear AP');
+	}
+  } catch (err) {
+	alert('Erro de comunicação com o servidor');
+  } finally {
+	setSavingName(false);
+  }
+};
 
-	const handleMove = async () => {
-	  try {
-		const response = await fetch(`${API_URL}/aps/${id}/move`, {
-		  method: 'POST',
-		  headers: {
-			'Content-Type': 'application/json',
-			'Authorization': `Bearer ${token}`
-		  },
-		  body: JSON.stringify({ group: newGroup })
-		});
-		
-		const data = await response.json();
-		
-		if (data.success) {
-		  setMovingGroup(false);
-		  setNewGroup('');
-		  fetchAPDetails();
-		} else {
-		  alert(data.error || 'Erro ao mover AP');
-		}
-	  } catch (err) {
-		alert('Erro de comunicação com o servidor');
-	  }
-	};
+const handleMove = async () => {
+  setSavingGroup(true);
+  try {
+	const response = await fetch(`${API_URL}/aps/${id}/move`, {
+	  method: 'POST',
+	  headers: {
+		'Content-Type': 'application/json',
+		'Authorization': `Bearer ${token}`
+	  },
+	  body: JSON.stringify({ group: newGroup })
+	});
+	
+	const data = await response.json();
+	
+	if (data.success) {
+	  setMovingGroup(false);
+	  setNewGroup('');
+	  fetchAPDetails();
+	} else {
+	  alert(data.error || 'Erro ao mover AP');
+	}
+  } catch (err) {
+	alert('Erro de comunicação com o servidor');
+  } finally {
+	setSavingGroup(false);
+  }
+};
 
   return (
     <div className="space-y-6">
@@ -788,7 +806,10 @@ const APDetailsPage = ({ token }) => {
 					onChange={(e) => setNewName(e.target.value)}
 					className="border border-gray-300 rounded px-2 py-1 flex-1"
 				  />
-				  <Button variant="success" className="text-sm" onClick={handleRename}>Salvar</Button>
+          <Button variant="success" className="text-sm flex items-center gap-1" onClick={handleRename} disabled={savingName}>
+            {savingName && <Loader2 className="w-3 h-3 animate-spin" />}
+            {savingName ? 'Salvando...' : 'Salvar'}
+          </Button>
 				  <Button variant="secondary" className="text-sm" onClick={() => setEditingName(false)}>Cancelar</Button>
 				</div>
 			  ) : (
@@ -811,7 +832,10 @@ const APDetailsPage = ({ token }) => {
 					  <option key={g.name} value={g.name}>{g.name}</option>
 					))}
 				  </select>
-				  <Button variant="success" className="text-sm" onClick={handleMove}>Salvar</Button>
+          <Button variant="success" className="text-sm flex items-center gap-1" onClick={handleMove} disabled={savingGroup}>
+            {savingGroup && <Loader2 className="w-3 h-3 animate-spin" />}
+            {savingGroup ? 'Salvando...' : 'Salvar'}
+          </Button>
 				  <Button variant="secondary" className="text-sm" onClick={() => setMovingGroup(false)}>Cancelar</Button>
 				</div>
 			  ) : (

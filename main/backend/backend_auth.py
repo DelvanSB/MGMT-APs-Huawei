@@ -788,8 +788,7 @@ def move_ap(conn, ap_id):
             'system-view',
             'wlan',
             f'ap-id {ap_id}',
-            f'ap-group {new_group}',
-            'Y',
+            f'ap-group {new_group}\nY',
             'quit',
             'quit'
         ]
@@ -837,15 +836,16 @@ def rename_ap(conn, ap_id):
             'system-view',
             'wlan',
             f'ap-id {ap_id}',
-            f'ap-name {new_name}',
-            'Y',
+            f'ap-name {new_name}\nY',
             'quit',
             'quit'
         ]
         
         outputs = conn.execute_commands(commands, wait_time=1)
         full_output = '\n'.join([o for o in outputs if o])
-        
+
+        logger.info(f"Output do switch ao renomear: {full_output}")
+
         if 'Error' in full_output or 'failed' in full_output.lower():
             return jsonify({
                 'success': False,
