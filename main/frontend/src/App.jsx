@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, us
 import { 
   Wifi, Users, Activity, AlertCircle, Search, Filter, 
   LogOut, Home, Folder, Radio, User, ChevronRight,
-  Signal, Smartphone, RefreshCw, Edit2, Trash2, Move, Loader2
+  Signal, Smartphone, RefreshCw, Edit2, Trash2, Move, Loader2, Settings
 } from 'lucide-react';
 
 const API_URL = '/api';
@@ -55,27 +55,56 @@ const Badge = ({ children, variant = 'default' }) => {
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [switches, setSwitches] = useState([]);
+  const [selectedSwitch, setSelectedSwitch] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingSwitches, setLoadingSwitches] = useState(true);
+
+  useEffect(() => {
+    fetchSwitches();
+  }, []);
+
+  const fetchSwitches = async () => {
+    try {
+      const response = await fetch(`${API_URL}/switches/list`);
+      const data = await response.json();
+      setSwitches(data.data || []);
+      if (data.data && data.data.length > 0) {
+        setSelectedSwitch(data.data[0].id);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar switches:', err);
+    } finally {
+      setLoadingSwitches(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (!selectedSwitch) {
+      setError('Selecione um switch');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, switch_id: selectedSwitch })
       });
 
       const data = await response.json();
 
       if (response.ok) {
-		localStorage.setItem('token', data.token);
-		localStorage.setItem('user', JSON.stringify(data.user));
-		onLogin(data.token, data.user);
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('switch_id', selectedSwitch);
+        onLogin(data.token, data.user);
       } else {
         setError(data.message || 'Erro ao fazer login');
       }
@@ -85,6 +114,38 @@ const LoginPage = ({ onLogin }) => {
       setLoading(false);
     }
   };
+
+  if (loadingSwitches) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <div className="text-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-gray-600">Carregando switches...</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (switches.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 text-yellow-600 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Nenhum Switch Configurado</h2>
+            <p className="text-gray-600 mb-4">
+              É necessário configurar pelo menos um switch antes de fazer login.
+            </p>
+            <p className="text-sm text-gray-500">
+              Entre em contato com o administrador do sistema.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
@@ -98,6 +159,22 @@ const LoginPage = ({ onLogin }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Switch
+            </label>
+            <select
+              value={selectedSwitch}
+              onChange={(e) => setSelectedSwitch(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            >
+              {switches.map((sw) => (
+                <option key={sw.id} value={sw.id}>{sw.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Usuário
@@ -144,7 +221,7 @@ const LoginPage = ({ onLogin }) => {
 
         <div className="mt-6 text-center text-sm text-gray-600">
           <p>Sistema de Gerenciamento Facilitado - SGF</p>
-          <p className="font-mono mt-1">Para APs Huawei Via AC - <v1 className="0"></v1>v1.0</p>
+          <p className="font-mono mt-1">Para APs Huawei Via AC - v1.0</p>
         </div>
       </Card>
     </div>
@@ -310,16 +387,22 @@ const Layout = ({ children, user, onLogout }) => {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <User className="w-4 h-4" />
-                <span className="font-medium">{user?.name}</span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <User className="w-4 h-4" />
+                  <span className="font-medium">{user?.name}</span>
+                </div>
+                {user?.role === 'admin' && (
+                  <Button variant="secondary" onClick={() => navigate('/settings')} className="flex items-center gap-2">
+                    <Settings className="w-4 h-4" />
+                    Configurações
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={onLogout} className="flex items-center gap-2">
+                  <LogOut className="w-4 h-4" />
+                  Sair
+                </Button>
               </div>
-              <Button variant="secondary" onClick={onLogout} className="flex items-center gap-2">
-                <LogOut className="w-4 h-4" />
-                Sair
-              </Button>
-            </div>
           </div>
         </div>
       </header>
@@ -1399,6 +1482,332 @@ const UsersPage = ({ token }) => {
   );
 };
 
+// ============= CONFIGURAÇÕES =============
+
+const SettingsPage = ({ token }) => {
+  const [switches, setSwitches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingSwitch, setEditingSwitch] = useState(null);
+  const [formData, setFormData] = useState({ name: '', host: '', port: 22, username: '', password: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchSwitches();
+  }, []);
+
+  const fetchSwitches = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const response = await fetch(`${API_URL}/switches`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setSwitches(data.data || []);
+    } catch (err) {
+      console.error('Erro ao carregar switches:', err);
+    } finally {
+      setLoading(false);
+      if (isRefresh) setRefreshing(false);
+    }
+  };
+
+  const handleAddSwitch = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/switches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Switch adicionado com sucesso!');
+        setShowAddModal(false);
+        setFormData({ name: '', host: '', port: 22, username: '', password: '' });
+        fetchSwitches();
+      } else {
+        alert(data.error || 'Erro ao adicionar switch');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditSwitch = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/switches/${editingSwitch.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Switch editado com sucesso!');
+        setShowEditModal(false);
+        setEditingSwitch(null);
+        setFormData({ name: '', host: '', port: 22, username: '', password: '' });
+        fetchSwitches();
+      } else {
+        alert(data.error || 'Erro ao editar switch');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSwitch = async (switchId, switchName) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o switch "${switchName}"?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/switches/${switchId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Switch excluído com sucesso!');
+        fetchSwitches();
+      } else {
+        alert(data.error || 'Erro ao excluir switch');
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor');
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center py-12">Carregando...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-800">Configurações de Switches</h2>
+        <div className="flex gap-2">
+          <Button onClick={() => fetchSwitches(true)} variant="secondary" className="flex items-center gap-2" disabled={refreshing}>
+            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {refreshing ? 'Atualizando...' : 'Atualizar'}
+          </Button>
+          <Button variant="primary" onClick={() => setShowAddModal(true)}>Adicionar Switch</Button>
+        </div>
+      </div>
+
+      <Card>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Host</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Porta</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Usuário</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {switches.map((sw) => (
+                <tr key={sw.id} className="border-b border-gray-100">
+                  <td className="py-3 px-4 font-medium text-gray-800">{sw.name}</td>
+                  <td className="py-3 px-4 text-gray-600">{sw.host}</td>
+                  <td className="py-3 px-4 text-gray-600">{sw.port}</td>
+                  <td className="py-3 px-4 text-gray-600">{sw.username}</td>
+                  <td className="py-3 px-4">
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="secondary" 
+                        className="text-sm"
+                        onClick={() => {
+                          setEditingSwitch(sw);
+                          setFormData({ name: sw.name, host: sw.host, port: sw.port, username: sw.username, password: '' });
+                          setShowEditModal(true);
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      <Button 
+                        variant="danger" 
+                        className="text-sm"
+                        onClick={() => handleDeleteSwitch(sw.id, sw.name)}
+                      >
+                        Excluir
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Modal Adicionar Switch */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Adicionar Switch</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="SW-Core-01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Host (IP ou FQDN)</label>
+                <input
+                  type="text"
+                  value={formData.host}
+                  onChange={(e) => setFormData({...formData, host: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="192.168.1.1 ou switch.local"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Porta SSH</label>
+                <input
+                  type="number"
+                  value={formData.port}
+                  onChange={(e) => setFormData({...formData, port: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="22"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Usuário SSH</label>
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="admin"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Senha SSH</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="********"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <Button variant="primary" className="flex-1 flex items-center justify-center gap-2" onClick={handleAddSwitch} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={() => {
+                setShowAddModal(false);
+                setFormData({ name: '', host: '', port: 22, username: '', password: '' });
+              }} disabled={saving}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal Editar Switch */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Editar Switch</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Host (IP ou FQDN)</label>
+                <input
+                  type="text"
+                  value={formData.host}
+                  onChange={(e) => setFormData({...formData, host: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Porta SSH</label>
+                <input
+                  type="number"
+                  value={formData.port}
+                  onChange={(e) => setFormData({...formData, port: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Usuário SSH</label>
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nova Senha SSH (deixe em branco para não alterar)</label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="********"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <Button variant="primary" className="flex-1 flex items-center justify-center gap-2" onClick={handleEditSwitch} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+              <Button variant="secondary" className="flex-1" onClick={() => {
+                setShowEditModal(false);
+                setEditingSwitch(null);
+                setFormData({ name: '', host: '', port: 22, username: '', password: '' });
+              }} disabled={saving}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ============= APP PRINCIPAL =============
 
 function App() {
@@ -1463,14 +1872,15 @@ function App() {
 	return (
 		<Router>
 			<Layout user={user} onLogout={handleLogout}>
-				<Routes>
-					<Route path="/" element={<Dashboard token={token} />} />
-					<Route path="/groups" element={<GroupsPage token={token} />} />
-					<Route path="/aps" element={<APsPage token={token} />} />
-					<Route path="/aps/:id" element={<APDetailsPage token={token} />} />
-					<Route path="/users" element={<UsersPage token={token} />} />
-					<Route path="*" element={<Navigate to="/" />} />
-				</Routes>
+        <Routes>
+          <Route path="/" element={<Dashboard token={token} />} />
+          <Route path="/groups" element={<GroupsPage token={token} />} />
+          <Route path="/aps" element={<APsPage token={token} />} />
+          <Route path="/aps/:id" element={<APDetailsPage token={token} />} />
+          <Route path="/users" element={<UsersPage token={token} />} />
+          <Route path="/settings" element={<SettingsPage token={token} />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
 			</Layout>
 		</Router>
 	);

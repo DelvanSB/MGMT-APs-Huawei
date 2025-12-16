@@ -43,6 +43,9 @@ JWT_EXP_DELTA_HOURS = 8  # Token expira em 8 horas
 # Arquivo de usuários
 USERS_FILE = 'users.json'
 
+# Arquivo de switches
+SWITCHES_FILE = 'switches.json'
+
 # ==================== LOGGING ====================
 
 logging.basicConfig(
@@ -81,6 +84,39 @@ def save_users(users):
         logger.error(f"Erro ao salvar usuários: {str(e)}")
         return False
 
+# ==================== GERENCIAMENTO DE SWITCHES ====================
+
+def load_switches():
+    """Carrega switches do arquivo JSON"""
+    if not os.path.exists(SWITCHES_FILE):
+        return []
+    
+    try:
+        with open(SWITCHES_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Erro ao carregar switches: {str(e)}")
+        return []
+
+
+def save_switches(switches):
+    """Salva switches no arquivo JSON"""
+    try:
+        with open(SWITCHES_FILE, 'w') as f:
+            json.dump(switches, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Erro ao salvar switches: {str(e)}")
+        return False
+
+
+def get_switch_by_id(switch_id):
+    """Retorna configuração de um switch específico"""
+    switches = load_switches()
+    for switch in switches:
+        if switch['id'] == switch_id:
+            return switch
+    return None
 
 def authenticate_user(username, password):
     """Autentica usuário"""
@@ -110,8 +146,12 @@ def generate_token(user_data):
         'username': user_data['username'],
         'name': user_data['name'],
         'role': user_data['role'],
+        'switch_id': user_data.get('switch_id'),
         'exp': datetime.utcnow() + timedelta(hours=JWT_EXP_DELTA_HOURS)
     }
+    
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return token
     
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return token
@@ -469,14 +509,41 @@ def parse_stations(output):
 # ==================== DECORADOR SWITCH ====================
 
 def with_switch_connection(f):
-    """Decorador para gerenciar conexão SSH"""
+    """Decorador para gerenciar conexão SSH usando switch do token"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        conn = SwitchConnection(SWITCH_CONFIG)
+        # Obtém switch_id do token do usuário autenticado
+        switch_id = request.current_user.get('switch_id')
+        
+        if not switch_id:
+            return jsonify({
+                'success': False,
+                'error': 'Switch não selecionado'
+            }), 400
+        
+        # Busca credenciais do switch
+        switch = get_switch_by_id(switch_id)
+        
+        if not switch:
+            return jsonify({
+                'success': False,
+                'error': f'Switch ID {switch_id} não encontrado'
+            }), 404
+        
+        # Prepara configuração para conexão
+        switch_config = {
+            'host': switch['host'],
+            'port': switch.get('port', 22),
+            'username': switch['username'],
+            'password': switch['password'],
+            'timeout': 15
+        }
+        
+        conn = SwitchConnection(switch_config)
         if not conn.connect():
             return jsonify({
                 'success': False,
-                'error': 'Não foi possível conectar ao switch'
+                'error': f'Não foi possível conectar ao switch {switch["name"]}'
             }), 500
         
         try:
@@ -550,40 +617,97 @@ def initial_setup():
             'error': 'Erro ao configurar sistema'
         }), 500
 
+@app.route('/api/switches/list', methods=['GET'])
+def list_switches_public():
+    """Lista switches disponíveis (apenas id e nome) - Rota pública para tela de login"""
+    try:
+        switches = load_switches()
+        
+        # Retorna apenas ID e nome (sem dados sensíveis)
+        switches_public = []
+        for switch in switches:
+            switches_public.append({
+                'id': switch['id'],
+                'name': switch['name']
+            })
+        
+        return jsonify({
+            'success': True,
+            'data': switches_public
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao listar switches públicos: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao listar switches'
+        }), 500
+
 @app.route('/api/auth/login', methods=['POST'])
 def login():
-    """Endpoint de login"""
+    """Autentica usuário e retorna token JWT"""
     try:
         data = request.json
-        username = data.get('username', '').strip().lower()
+        username = data.get('username', '').lower()
         password = data.get('password', '')
+        switch_id = data.get('switch_id', '')
         
-        if not username or not password:
+        if not username or not password or not switch_id:
             return jsonify({
                 'success': False,
-                'error': 'Usuário e senha são obrigatórios'
+                'message': 'Usuário, senha e switch são obrigatórios'
             }), 400
         
-        user = authenticate_user(username, password)
+        users = load_users()
         
-        if not user:
-            logger.warning(f"Tentativa de login falhou para usuário: {username}")
+        if username not in users:
+            logger.warning(f"Tentativa de login com usuário inexistente: {username}")
             return jsonify({
                 'success': False,
-                'error': 'Usuário ou senha inválidos'
+                'message': 'Usuário ou senha incorretos'
             }), 401
         
-        token = generate_token(user)
+        user = users[username]
         
-        logger.info(f"Login bem-sucedido: {user['name']} ({username})")
+        if not user.get('active', True):
+            logger.warning(f"Tentativa de login com usuário inativo: {username}")
+            return jsonify({
+                'success': False,
+                'message': 'Usuário inativo'
+            }), 401
+        
+        if not check_password_hash(user['password'], password):
+            logger.warning(f"Tentativa de login com senha incorreta: {username}")
+            return jsonify({
+                'success': False,
+                'message': 'Usuário ou senha incorretos'
+            }), 401
+        
+        # Verifica se o switch existe
+        switch = get_switch_by_id(switch_id)
+        if not switch:
+            return jsonify({
+                'success': False,
+                'message': 'Switch não encontrado'
+            }), 400
+        
+        # Gera token JWT incluindo switch_id
+        token = generate_token({
+            'username': username,
+            'name': user['name'],
+            'role': user.get('role', 'operator'),
+            'switch_id': switch_id
+        })
+        
+        logger.info(f"Login bem-sucedido: {user['name']} ({username}) - Switch: {switch['name']}")
         
         return jsonify({
             'success': True,
             'token': token,
             'user': {
-                'username': user['username'],
+                'username': username,
                 'name': user['name'],
-                'role': user['role']
+                'role': user.get('role', 'operator')
             }
         })
         
@@ -591,7 +715,7 @@ def login():
         logger.error(f"Erro no login: {str(e)}")
         return jsonify({
             'success': False,
-            'error': 'Erro interno no servidor'
+            'message': 'Erro interno no servidor'
         }), 500
 
 
@@ -772,6 +896,185 @@ def delete_user(username):
         return jsonify({
             'success': False,
             'error': 'Erro ao excluir usuário'
+        }), 500
+
+# ==================== ROTAS DE SWITCHES (ADMIN ONLY) ====================
+
+@app.route('/api/switches', methods=['GET'])
+@admin_required
+def list_switches():
+    """Lista todos os switches (sem senhas)"""
+    try:
+        switches = load_switches()
+        
+        # Remove senhas antes de enviar
+        switches_safe = []
+        for switch in switches:
+            switches_safe.append({
+                'id': switch['id'],
+                'name': switch['name'],
+                'host': switch['host'],
+                'port': switch.get('port', 22),
+                'username': switch['username']
+            })
+        
+        logger.info(f"[{request.current_user['name']}] Listando switches...")
+        
+        return jsonify({
+            'success': True,
+            'data': switches_safe
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao listar switches: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao listar switches'
+        }), 500
+
+
+@app.route('/api/switches', methods=['POST'])
+@admin_required
+def add_switch():
+    """Adiciona novo switch"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        host = data.get('host', '').strip()
+        port = data.get('port', 22)
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not name or not host or not username or not password:
+            return jsonify({
+                'success': False,
+                'error': 'Todos os campos são obrigatórios'
+            }), 400
+        
+        switches = load_switches()
+        
+        # Gera ID único
+        switch_id = str(len(switches) + 1)
+        while any(s['id'] == switch_id for s in switches):
+            switch_id = str(int(switch_id) + 1)
+        
+        switches.append({
+            'id': switch_id,
+            'name': name,
+            'host': host,
+            'port': int(port),
+            'username': username,
+            'password': password
+        })
+        
+        if save_switches(switches):
+            logger.info(f"[{request.current_user['name']}] Switch '{name}' adicionado")
+            return jsonify({
+                'success': True,
+                'message': f'Switch {name} adicionado com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao salvar switch'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao adicionar switch: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao adicionar switch'
+        }), 500
+
+
+@app.route('/api/switches/<switch_id>', methods=['PUT'])
+@admin_required
+def edit_switch(switch_id):
+    """Edita switch existente"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        host = data.get('host', '').strip()
+        port = data.get('port', 22)
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        switches = load_switches()
+        
+        switch_found = False
+        for switch in switches:
+            if switch['id'] == switch_id:
+                switch_found = True
+                if name:
+                    switch['name'] = name
+                if host:
+                    switch['host'] = host
+                if port:
+                    switch['port'] = int(port)
+                if username:
+                    switch['username'] = username
+                if password:
+                    switch['password'] = password
+                break
+        
+        if not switch_found:
+            return jsonify({
+                'success': False,
+                'error': 'Switch não encontrado'
+            }), 404
+        
+        if save_switches(switches):
+            logger.info(f"[{request.current_user['name']}] Switch ID {switch_id} editado")
+            return jsonify({
+                'success': True,
+                'message': 'Switch editado com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao salvar alterações'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao editar switch {switch_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao editar switch'
+        }), 500
+
+
+@app.route('/api/switches/<switch_id>', methods=['DELETE'])
+@admin_required
+def delete_switch(switch_id):
+    """Exclui switch"""
+    try:
+        switches = load_switches()
+        
+        switches_filtered = [s for s in switches if s['id'] != switch_id]
+        
+        if len(switches_filtered) == len(switches):
+            return jsonify({
+                'success': False,
+                'error': 'Switch não encontrado'
+            }), 404
+        
+        if save_switches(switches_filtered):
+            logger.info(f"[{request.current_user['name']}] Switch ID {switch_id} excluído")
+            return jsonify({
+                'success': True,
+                'message': 'Switch excluído com sucesso'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Erro ao excluir switch'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Erro ao excluir switch {switch_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao excluir switch'
         }), 500
 
 # ==================== ROTAS DA API (PROTEGIDAS) ====================

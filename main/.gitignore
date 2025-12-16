@@ -17,3 +17,6 @@ build/
 # Backups
 *.backup*
 *.bkp*
+
+# json Files
+*.json
