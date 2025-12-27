@@ -723,6 +723,13 @@ const APsPage = ({ token }) => {
   const [groupFilter, setGroupFilter] = useState('');
   const navigate = useNavigate();
 
+  // Estados para seleção múltipla e movimentação
+  const [selectedAPs, setSelectedAPs] = useState([]);
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [availableGroups, setAvailableGroups] = useState([]);
+  const [targetGroup, setTargetGroup] = useState('');
+  const [movingAPs, setMovingAPs] = useState(false);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const group = params.get('group');
@@ -764,6 +771,94 @@ const fetchAPs = async (group = null, isRefresh = false) => {
       'idle': 'warning'
     };
     return <Badge variant={variants[status.toLowerCase()]}>{status}</Badge>;
+  };
+
+  // Funções de seleção
+  const toggleSelectAP = (apId) => {
+    setSelectedAPs(prev => 
+      prev.includes(apId) 
+        ? prev.filter(id => id !== apId)
+        : [...prev, apId]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = filteredAPs.map(ap => ap.id);
+    const allVisibleSelected = visibleIds.every(id => selectedAPs.includes(id));
+    
+    if (allVisibleSelected) {
+      // Remove todos os visíveis da seleção
+      setSelectedAPs(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      // Adiciona todos os visíveis à seleção
+      setSelectedAPs(prev => [...new Set([...prev, ...visibleIds])]);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedAPs([]);
+  };
+
+  // Funções de movimentação
+  const fetchAvailableGroups = async () => {
+    try {
+      const response = await fetch(`${API_URL}/groups`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setAvailableGroups(data.data || []);
+    } catch (err) {
+      console.error('Erro ao carregar grupos:', err);
+    }
+  };
+
+  const openMoveModal = () => {
+    fetchAvailableGroups();
+    setTargetGroup('');
+    setShowMoveModal(true);
+  };
+
+  const handleMoveSelectedAPs = async () => {
+    if (!targetGroup || selectedAPs.length === 0) return;
+    
+    setMovingAPs(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const apId of selectedAPs) {
+      try {
+        const response = await fetch(`${API_URL}/aps/${apId}/move`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ group: targetGroup })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+      } catch (err) {
+        errorCount++;
+      }
+    }
+
+    setMovingAPs(false);
+    setShowMoveModal(false);
+    
+    if (errorCount === 0) {
+      alert(`${successCount} AP(s) movido(s) com sucesso para o grupo "${targetGroup}"!`);
+    } else {
+      alert(`${successCount} AP(s) movido(s) com sucesso, ${errorCount} erro(s).`);
+    }
+    
+    setSelectedAPs([]);
+    fetchAPs(groupFilter, true);
   };
 
   if (loading) {
@@ -822,12 +917,49 @@ const fetchAPs = async (group = null, isRefresh = false) => {
         </div>
       </Card>
 
+      {/* Barra de Ações para Seleção */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600">
+              {selectedAPs.length > 0 ? (
+                <span className="font-medium text-blue-600">{selectedAPs.length} AP(s) selecionado(s)</span>
+              ) : (
+                'Nenhum AP selecionado'
+              )}
+            </span>
+            {selectedAPs.length > 0 && (
+              <Button variant="secondary" className="text-sm" onClick={clearSelection}>
+                Limpar seleção
+              </Button>
+            )}
+          </div>
+          <Button 
+            variant="primary" 
+            className="flex items-center gap-2"
+            onClick={openMoveModal}
+            disabled={selectedAPs.length === 0}
+          >
+            <Move className="w-4 h-4" />
+            Mover Selecionados
+          </Button>
+        </div>
+      </Card>
+
       {/* Lista de APs */}
       <Card>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200">
+                <th className="py-3 px-4 w-12">
+                  <input
+                    type="checkbox"
+                    checked={filteredAPs.length > 0 && filteredAPs.every(ap => selectedAPs.includes(ap.id))}
+                    onChange={toggleSelectAllVisible}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">MAC</th>
                 
@@ -838,21 +970,29 @@ const fetchAPs = async (group = null, isRefresh = false) => {
             </thead>
             <tbody>
               {filteredAPs.map((ap) => (
-                <tr key={ap.mac} className="border-b border-gray-100 hover:bg-gray-50">
-				<td className="py-3 px-4 font-medium text-gray-800">{ap.name}</td>
-				<td className="py-3 px-4 text-gray-600 font-mono text-sm">{ap.mac}</td>
-				<td className="py-3 px-4 text-gray-600">{ap.group}</td>
-				<td className="py-3 px-4">{getStatusBadge(ap.state)}</td>
-				<td className="py-3 px-4">
-				  <Button
-					variant="secondary"
-					className="text-sm"
-					onClick={() => navigate(`/aps/${ap.id}`)}
-				  >
-					Detalhes
-				  </Button>
-				</td>
-			   </tr>
+                <tr key={ap.mac} className={`border-b border-gray-100 hover:bg-gray-50 ${selectedAPs.includes(ap.id) ? 'bg-blue-50' : ''}`}>
+                  <td className="py-3 px-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedAPs.includes(ap.id)}
+                      onChange={() => toggleSelectAP(ap.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
+                  <td className="py-3 px-4 font-medium text-gray-800">{ap.name}</td>
+                  <td className="py-3 px-4 text-gray-600 font-mono text-sm">{ap.mac}</td>
+                  <td className="py-3 px-4 text-gray-600">{ap.group}</td>
+                  <td className="py-3 px-4">{getStatusBadge(ap.state)}</td>
+                  <td className="py-3 px-4">
+                    <Button
+                      variant="secondary"
+                      className="text-sm"
+                      onClick={() => navigate(`/aps/${ap.id}`)}
+                    >
+                      Detalhes
+                    </Button>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -864,6 +1004,56 @@ const fetchAPs = async (group = null, isRefresh = false) => {
           )}
         </div>
       </Card>
+
+      {/* Modal Mover APs */}
+      {showMoveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Mover {selectedAPs.length} AP(s)
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Grupo de Destino
+                </label>
+                <select
+                  value={targetGroup}
+                  onChange={(e) => setTargetGroup(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Selecione um grupo...</option>
+                  {availableGroups.map((g) => (
+                    <option key={g.name} value={g.name}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-sm text-gray-500">
+                Os APs selecionados serão movidos para o grupo escolhido.
+              </p>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <Button 
+                variant="primary" 
+                className="flex-1 flex items-center justify-center gap-2" 
+                onClick={handleMoveSelectedAPs} 
+                disabled={movingAPs || !targetGroup}
+              >
+                {movingAPs && <Loader2 className="w-4 h-4 animate-spin" />}
+                {movingAPs ? 'Movendo...' : 'Mover'}
+              </Button>
+              <Button 
+                variant="secondary" 
+                className="flex-1" 
+                onClick={() => setShowMoveModal(false)} 
+                disabled={movingAPs}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
@@ -879,11 +1069,7 @@ const APDetailsPage = ({ token }) => {
   // Estados para edição
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
-  const [movingGroup, setMovingGroup] = useState(false);
-  const [newGroup, setNewGroup] = useState('');
-  const [availableGroups, setAvailableGroups] = useState([]);
   const [savingName, setSavingName] = useState(false);
-  const [savingGroup, setSavingGroup] = useState(false);
 
   useEffect(() => {
     fetchAPDetails();
@@ -910,18 +1096,6 @@ const APDetailsPage = ({ token }) => {
   if (!ap) {
     return <div className="text-center py-12">AP não encontrado</div>;
   }
-
-	const fetchAvailableGroups = async () => {
-	  try {
-		const response = await fetch(`${API_URL}/groups`, {
-		  headers: { 'Authorization': `Bearer ${token}` }
-		});
-		const data = await response.json();
-		setAvailableGroups(data.data || []);
-	  } catch (err) {
-		console.error('Erro ao carregar grupos:', err);
-	  }
-	};
 
 const handleRename = async () => {
   setSavingName(true);
@@ -951,34 +1125,6 @@ const handleRename = async () => {
   }
 };
 
-const handleMove = async () => {
-  setSavingGroup(true);
-  try {
-	const response = await fetch(`${API_URL}/aps/${id}/move`, {
-	  method: 'POST',
-	  headers: {
-		'Content-Type': 'application/json',
-		'Authorization': `Bearer ${token}`
-	  },
-	  body: JSON.stringify({ group: newGroup })
-	});
-	
-	const data = await response.json();
-	
-	if (data.success) {
-	  setMovingGroup(false);
-	  setNewGroup('');
-	  fetchAPDetails();
-	} else {
-	  alert(data.error || 'Erro ao mover AP');
-	}
-  } catch (err) {
-	alert('Erro de comunicação com o servidor');
-  } finally {
-	setSavingGroup(false);
-  }
-};
-
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -993,30 +1139,17 @@ const handleMove = async () => {
 		  <div className="flex justify-between items-center mb-4">
 			<h3 className="text-lg font-semibold text-gray-800">Informações Básicas</h3>
 			<div className="flex gap-2">
-			  {!editingName && !movingGroup && (
-				<>
-				  <Button
-					variant="primary"
-					className="text-sm"
-					onClick={() => {
-					  setEditingName(true);
-					  setNewName(ap.name);
-					}}
-				  >
-					Editar Nome
-				  </Button>
-				  <Button
-					variant="secondary"
-					className="text-sm"
-					onClick={() => {
-					  setMovingGroup(true);
-					  setNewGroup(ap.group);
-					  fetchAvailableGroups();
-					}}
-				  >
-					Mover Grupo
-				  </Button>
-				</>
+			  {!editingName && (
+				<Button
+				  variant="primary"
+				  className="text-sm"
+				  onClick={() => {
+					setEditingName(true);
+					setNewName(ap.name);
+				  }}
+				>
+				  Editar Nome
+				</Button>
 			  )}
 			</div>
 		  </div>
@@ -1044,29 +1177,7 @@ const handleMove = async () => {
 			<InfoItem label="MAC Address" value={ap.mac} />
 			<InfoItem label="Serial" value={ap.serial} />
 			<InfoItem label="Modelo" value={ap.type} />
-			<div>
-			  <p className="text-sm text-gray-600 mb-1">Grupo</p>
-			  {movingGroup ? (
-				<div className="flex gap-2 items-center">
-				  <select
-					value={newGroup}
-					onChange={(e) => setNewGroup(e.target.value)}
-					className="border border-gray-300 rounded px-2 py-1 flex-1"
-				  >
-					{availableGroups.map((g) => (
-					  <option key={g.name} value={g.name}>{g.name}</option>
-					))}
-				  </select>
-          <Button variant="success" className="text-sm flex items-center gap-1" onClick={handleMove} disabled={savingGroup}>
-            {savingGroup && <Loader2 className="w-3 h-3 animate-spin" />}
-            {savingGroup ? 'Salvando...' : 'Salvar'}
-          </Button>
-				  <Button variant="secondary" className="text-sm" onClick={() => setMovingGroup(false)}>Cancelar</Button>
-				</div>
-			  ) : (
-				<p className="font-medium text-gray-800">{ap.group}</p>
-			  )}
-			</div>
+			<InfoItem label="Grupo" value={ap.group} />
 			<InfoItem label="País" value={ap.country_code} />
 			<InfoItem label="Status" value={<Badge variant="success">{ap.state}</Badge>} />
 		  </div>
